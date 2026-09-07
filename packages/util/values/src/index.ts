@@ -14,6 +14,18 @@ export function assertNever(value: never, context?: string): never {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ''}: ${rendered}`)
 }
 
+/**
+ * Native-function source text as this realm's own engine renders it. ECMA-262 leaves
+ * NativeFunction formatting implementation-defined: V8 emits one line, JavaScriptCore
+ * spreads `[native code]` over three. Reading it from a known intrinsic recognizes
+ * intrinsics from any realm on any engine, because one engine renders all of its own
+ * native constructors identically.
+ */
+const NATIVE_CONSTRUCTOR_SOURCE: Readonly<Record<'Array' | 'Object', string>> = {
+  Array: Function.prototype.toString.call(Array),
+  Object: Function.prototype.toString.call(Object),
+}
+
 /** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
@@ -22,7 +34,7 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+      && Function.prototype.toString.call(constructor) === NATIVE_CONSTRUCTOR_SOURCE[name]
   } catch {
     return false
   }
