@@ -201,6 +201,22 @@ function reasoningInfo(
   }
 }
 
+/**
+ * The `metadata.user_id` value one session sends on an Anthropic Messages
+ * request. Anthropic's field is a free-form string; the caching gateways in
+ * front of it parse a JSON object out of it and key prompt-cache and routing
+ * state on `session_id`, so a request without a parseable session can land on
+ * an upstream holding no cache for its prefix. The empty members complete the
+ * record a reader expects — the harness has no device or account identity and
+ * sends none. `anthropic-messages` is the only pi-ai protocol that reads
+ * `metadata`, so the option rides along unread elsewhere.
+ * @param sessionId - the request's harness session id.
+ * @returns the JSON object string to send as `metadata.user_id`.
+ */
+function sessionUserId(sessionId: string): string {
+  return JSON.stringify({ device_id: '', account_uuid: '', session_id: sessionId })
+}
+
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
 function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
   const attribution = attributionHeaders()
@@ -377,6 +393,7 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...options.sessionId === undefined ? {} : { metadata: { user_id: sessionUserId(String(options.sessionId)) } },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
