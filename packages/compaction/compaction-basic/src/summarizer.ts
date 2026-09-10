@@ -14,7 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 interface SummaryConfig {
   readonly summarizationProvider: string
   readonly summarizationModel: string
-  readonly maxTokens: number
+  readonly maxTokens?: number
 }
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
@@ -150,13 +150,16 @@ export async function summarizeWithLlm(
       source: { kind: 'plugin', plugin: 'dsh-compaction-basic' },
     }),
   ]
+  // A cap is sent only when configured, so an unset one leaves the LLM seam to
+  // materialize the routed model's own `defaultMaxTokens`. Naming a value here
+  // would win without clamping and suppress that per-model cap.
   const options: GenerateOptions = {
     provider: target.provider,
     model: target.model,
     messages,
     ...input.system === undefined ? {} : { system: input.system },
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
-    maxTokens: config.maxTokens,
+    ...config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens },
     sessionId: agent.session.id,
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
@@ -176,7 +179,7 @@ export async function summarizeWithLlm(
     llmStreamCall: true,
     provider: options.provider,
     model: options.model,
-    maxTokens: config.maxTokens,
+    ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
 }

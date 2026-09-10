@@ -52,7 +52,7 @@ interface ResolvedPolicyFields {
   readonly thresholdRatio: number
   readonly summarizationProvider: string
   readonly summarizationModel: string
-  readonly maxTokens: number
+  readonly maxTokens?: number
   readonly compactionRetries: number
   readonly maxOverflowRetries: number
 }

@@ -301,12 +301,13 @@ describe('compact configuration and defaults', () => {
       retainRatio: 0.16,
       summarizationProvider: '',
       summarizationModel: '',
-      maxTokens: 8192,
       compactionRetries: 1,
       maxOverflowRetries: 1,
       modelPolicies: [],
       auto: true,
     })
+    // No summarization cap: naming one would suppress the routed model's own.
+    expect(resolved).not.toHaveProperty('maxTokens')
     expect(Object.isFrozen(resolved)).toBe(true)
   })
 
@@ -1125,12 +1126,23 @@ describe('compaction region transaction', () => {
 class ScriptedAdapter extends LlmAdapter {
   lastOptions: GenerateOptions | undefined
   usage: TokenUsage | undefined
+  /** Stands in for a model entry that declares its own per-request output cap. */
+  declaredCap: number | undefined
 
   constructor(
     private readonly blocks: readonly ContentBlock[],
     private readonly finish: (StreamChunk & { type: 'finish' })['reason'] = { kind: 'stop' },
   ) {
     super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      ...this.declaredCap === undefined ? {} : { defaultMaxTokens: this.declaredCap },
+    })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -1231,6 +1243,46 @@ describe('default one-shot summarizer', () => {
     })
     const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
+  })
+
+  describe('summarization output cap', () => {
+    const target = { auto: false, summarizationProvider: MODEL, summarizationModel: MODEL } as const
+
+    async function summarize(config: BasicCompactionConfig, declaredCap?: number) {
+      const { adapter, compact } = await summarizerHarness(
+        [{ type: 'text', text: 'public summary' }],
+        undefined,
+        MODEL,
+        config,
+      )
+      adapter.declaredCap = declaredCap
+      const output = await compact.runSummarize(
+        promptInput('transcript'),
+        agent(conversation(1), 'fallback'),
+        SIGNAL,
+      )
+      return { adapter, output }
+    }
+
+    it("materializes the routed model's declared cap when none is configured", async () => {
+      const { adapter } = await summarize({ ...target }, 64_000)
+
+      expect(adapter.lastOptions?.maxTokens).toBe(64_000)
+    })
+
+    it('sends no cap when neither the config nor the model declares one', async () => {
+      const { adapter, output } = await summarize({ ...target })
+
+      expect(adapter.lastOptions).not.toHaveProperty('maxTokens')
+      expect(output).not.toHaveProperty('maxTokens')
+    })
+
+    it('keeps a configured cap ahead of the model-declared one', async () => {
+      const { adapter, output } = await summarize({ ...target, maxTokens: 4_096 }, 64_000)
+
+      expect(adapter.lastOptions?.maxTokens).toBe(4_096)
+      expect(output).toMatchObject({ maxTokens: 4_096 })
+    })
   })
 
   it('replays the conversation prefix and appends the instruction as the final message', async () => {
